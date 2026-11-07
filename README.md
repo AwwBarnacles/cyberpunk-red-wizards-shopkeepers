@@ -105,28 +105,30 @@ Access via the **Improvement** button at the bottom of the Actors sidebar (avail
 
 ## Store
 
-A shared shopping interface where players browse and buy equipment from the system's compendium packs. Purchases are deducted from the character's Eurodollars automatically.
+Assign a shop to an actor and let players browse and buy equipment from compendiums and world items. Purchases are deducted from the buyer's Eurodollars automatically.
 
 ![Store — Player View](docs/store.png)
 
 **Player features:**
-- Browse items by category: Ammo, Armor, Clothing, Cyberware, Gear, Programs, Upgrades, Vehicles, Weapons
-- Search across all items
-- Items grouped by source (Core, Black Chrome, DLC, World)
+- Browse Ammo, Armor, Clothing, Cyberdecks, Cyberware, Gear, Programs, Upgrades, Vehicles and Weapons
+- Search the current category
+- Items are grouped by their system subtype, with applicable upgrades at the end of each category. Types without a subtype appear under Other. Weapon groups use the system's weapon types (for example, melee weapons rather than a separate sword type).
 - Buy with confirmation dialog showing balance before and after
 
 **GM controls** (settings tab inside the Store):
 
 ![Store — GM Settings](docs/store-gm.png)
 
-- **Cost modifier** — adjust all prices globally (percentage-based, or set to free)
+- **Cost modifier** — adjust prices for this shop (percentage-based, or set to free)
 - **Price range filter** — restrict which items are visible by price
 - **Category availability** — enable/disable entire item categories
 - **Hide individual items** — remove specific items from the store
 - **Exclude compendium packs** — hide entire packs (configured in module settings)
 - **Loot mode** — GMs can add items to characters for free
 
-Access via the **Store** button in the Items sidebar.
+**Setup:** As GM, right-click a world actor in the Actors directory and choose **Assign Shop**. Double-click its token to open the shop; Shift-double-click opens the actor sheet. Right-click the actor and choose **Remove Shop** to discard its shop settings. Assignment raises the actor's default ownership to Limited so players can interact with its token; removal does not change ownership back.
+
+Each actor has independent settings, initially copied from the old global store settings. Pack exclusions remain world-wide. The module API also provides `game.modules.get("cyberpunk-red-wizards").api.assign(actor)`, `.remove(actor)`, `.open(actor)` and `.isShop(actor)`; these accept an actor, UUID, world actor ID or name. For an unlinked token, pass its token actor to the API to configure that token independently.
 
 ---
 

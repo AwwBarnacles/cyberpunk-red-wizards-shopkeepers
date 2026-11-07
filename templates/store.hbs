@@ -34,15 +34,9 @@
 
   {{!-- Main content area --}}
   <div class="crw-store-body">
-    {{#if noActor}}
-    <div class="crw-store-empty">
-      <p>{{localize "crw.store.noCharacter"}}</p>
-    </div>
-
-    {{else if settingsActive}}
+    {{#if settingsActive}}
     {{!-- GM Settings Panel --}}
     <div class="crw-store-settings">
-
       {{!-- Cost Modifier --}}
       <div class="crw-store-settings-section">
         <h3>{{localize "crw.store.settings.costModifier"}}</h3>
@@ -54,8 +48,8 @@
           <button data-action="adjustMarkup" data-delta="10">+10%</button>
         </div>
         <div class="crw-store-markup-presets">
-          <button data-action="setMarkup" data-value="0">{{localize "crw.store.settings.free"}}</button>
-          <button data-action="setMarkup" data-value="100" class="crw-store-btn-active">{{localize "crw.store.settings.standardCost"}}</button>
+          <button data-action="setMarkup" data-value="0" class="{{#if markupIsFree}}crw-store-btn-active{{/if}}">{{localize "crw.store.settings.free"}}</button>
+          <button data-action="setMarkup" data-value="100" class="{{#if markupIsStandard}}crw-store-btn-active{{/if}}">{{localize "crw.store.settings.standardCost"}}</button>
         </div>
       </div>
 
@@ -107,6 +101,11 @@
           {{/each}}
         </div>
         <button data-action="restoreAllItems">{{localize "crw.store.settings.restoreAll"}}</button>
+        {{else if noActor}}
+        <div class="crw-store-empty">
+          <p>{{localize "crw.store.noCharacter"}}</p>
+        </div>
+
         {{else}}
         <p class="crw-store-hint">{{localize "crw.store.settings.noHiddenItems"}}</p>
         {{/if}}
@@ -127,7 +126,7 @@
     <div class="crw-store-items">
       {{#each itemGroups}}
       <div class="crw-store-group-divider">
-        <span>{{localize this.label}}</span>
+        <span>{{this.label}}</span>
       </div>
       {{#each this.items}}
       <div class="crw-store-item {{#if this.unaffordable}}crw-store-unaffordable{{/if}}"

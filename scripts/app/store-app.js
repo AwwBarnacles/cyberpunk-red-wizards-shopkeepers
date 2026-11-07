@@ -1,6 +1,6 @@
-import { loadStoreItems, categorizeItems, groupBySource } from "../data/store-loader.js";
+import { loadStoreItems, categorizeItems, groupBySubtype } from "../data/store-loader.js";
 import { purchaseItem, lootItem, calculateFinalPrice } from "../store/store-purchase.js";
-import { broadcastStoreState } from "../store/store-socket.js";
+import { getShop } from "../store/shop-state.js";
 import { MODULE_ID } from "../constants.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
@@ -9,6 +9,7 @@ const CATEGORY_TABS = [
   { type: "ammo", label: "crw.store.categories.ammo" },
   { type: "armor", label: "crw.store.categories.armor" },
   { type: "clothing", label: "crw.store.categories.clothing" },
+  { type: "cyberdeck", label: "crw.store.categories.cyberdeck" },
   { type: "cyberware", label: "crw.store.categories.cyberware" },
   { type: "gear", label: "crw.store.categories.gear" },
   { type: "program", label: "crw.store.categories.program" },
@@ -20,7 +21,6 @@ const CATEGORY_TABS = [
 export default class StoreApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
   static DEFAULT_OPTIONS = {
-    id: "crw-store",
     classes: ["crw-store-window"],
     tag: "div",
     window: {
@@ -51,8 +51,9 @@ export default class StoreApp extends HandlebarsApplicationMixin(ApplicationV2) 
     },
   };
 
-  static #instance = null;
+  static #instances = new Map();
 
+  #shopActor;
   #allItems = null;
   #state = {
     activeTab: "weapon",
@@ -60,23 +61,56 @@ export default class StoreApp extends HandlebarsApplicationMixin(ApplicationV2) 
     selectedActorId: null,
   };
 
-  static open() {
-    if (!StoreApp.#instance) {
-      StoreApp.#instance = new StoreApp();
-    }
-    StoreApp.#instance.render(true);
+  constructor(actor) {
+    super({ id: `crw-store-${actor.uuid.replaceAll(".", "-")}` });
+    this.#shopActor = actor;
   }
 
-  static refresh() {
-    if (StoreApp.#instance) StoreApp.#instance.render(true);
+  get title() { return this.#shopActor?.name ?? game.i18n.localize("crw.store.title"); }
+
+  static open(actor) {
+    if (!getShop(actor)) return ui.notifications.warn(game.i18n.localize("crw.store.shop.notShop"));
+    if (!actor.testUserPermission(game.user, "LIMITED")) {
+      return ui.notifications.warn(game.i18n.localize("crw.store.shop.noPermission"));
+    }
+    let app = StoreApp.#instances.get(actor.uuid);
+    if (!app) {
+      app = new StoreApp(actor);
+      StoreApp.#instances.set(actor.uuid, app);
+    }
+    app.render(true);
+    return app;
+  }
+
+  static refresh(actor) {
+    for (const app of StoreApp.#instances.values()) {
+      if (app.#shopActor.uuid === actor.uuid) {
+        app.#shopActor = actor;
+        if (getShop(actor) && actor.testUserPermission(game.user, "LIMITED")) app.render(true);
+        else app.close();
+      } else if (actor.type === "character" && app.rendered) app.render(true);
+    }
+  }
+
+  static closeFor(actor) {
+    StoreApp.#instances.get(actor.uuid)?.close();
+  }
+
+  static invalidateCatalog() {
+    for (const app of StoreApp.#instances.values()) {
+      app.#allItems = null;
+      if (app.rendered) app.render(true);
+    }
   }
 
   #getSelectedActor() {
     if (this.#state.selectedActorId) {
       const actor = game.actors.get(this.#state.selectedActorId);
-      if (actor) return actor;
+      if (actor && actor.type === "character" && actor.id !== this.#shopActor.id &&
+          (game.user.isGM || actor.isOwner)) return actor;
     }
-    if (game.user.character) {
+    if (game.user.character?.type === "character" && game.user.character.id !== this.#shopActor.id &&
+        (game.user.isGM || game.user.character.isOwner)) {
       this.#state.selectedActorId = game.user.character.id;
       return game.user.character;
     }
@@ -90,8 +124,8 @@ export default class StoreApp extends HandlebarsApplicationMixin(ApplicationV2) 
 
   #getActorChoices() {
     const actors = game.user.isGM
-      ? game.actors.filter(a => a.type === "character")
-      : game.actors.filter(a => a.isOwner && a.type === "character");
+      ? game.actors.filter(a => a.type === "character" && a.id !== this.#shopActor.id)
+      : game.actors.filter(a => a.isOwner && a.type === "character" && a.id !== this.#shopActor.id);
     return actors.map(a => ({
       id: a.id,
       name: a.name,
@@ -108,38 +142,52 @@ export default class StoreApp extends HandlebarsApplicationMixin(ApplicationV2) 
     }
 
     const actor = this.#getSelectedActor();
-    const markup = game.settings.get(MODULE_ID, "storeMarkup");
-    const availability = game.settings.get(MODULE_ID, "storeAvailability");
-    const { categoryEnabled, blockedItems, priceMin, priceMax } = availability;
+    const shop = getShop(this.#shopActor);
+    if (!shop) {
+      this.close();
+      return {};
+    }
+    const { markup, categoryEnabled, blockedItems, priceMin, priceMax } = shop;
     const blockedSet = new Set(blockedItems);
     const balance = actor?.system.wealth.value ?? 0;
     const isGM = game.user.isGM;
-    const settingsActive = this.#state.activeTab === "settings";
+    const settingsActive = isGM && this.#state.activeTab === "settings";
 
-    const tabs = CATEGORY_TABS.map(t => ({
+    let tabs = CATEGORY_TABS.map(t => ({
       ...t,
       active: this.#state.activeTab === t.type,
       visible: categoryEnabled[t.type] !== false,
     }));
+    if (!settingsActive && !tabs.some(t => t.active && t.visible)) {
+      const first = tabs.find(t => t.visible);
+      if (first) this.#state.activeTab = first.type;
+      tabs = tabs.map(t => ({ ...t, active: t.type === this.#state.activeTab }));
+    }
 
     let itemGroups = [];
-    if (actor && !settingsActive) {
+    if (actor && !settingsActive && categoryEnabled[this.#state.activeTab] !== false) {
       const categorized = categorizeItems(this.#allItems);
       let tabItems = categorized[this.#state.activeTab] ?? [];
+      let upgrades = this.#state.activeTab === "itemUpgrade" || categoryEnabled.itemUpgrade === false
+        ? []
+        : categorized.itemUpgrade.filter(item => item.upgradeTarget === this.#state.activeTab);
 
-      tabItems = tabItems.filter(item => {
+      const available = item => {
         if (blockedSet.has(item.uuid)) return false;
         if (priceMin > 0 && item.price < priceMin) return false;
         if (priceMax > 0 && item.price > priceMax) return false;
         return true;
-      });
+      };
+      tabItems = tabItems.filter(available);
+      upgrades = upgrades.filter(available);
 
       if (this.#state.searchValue) {
         const search = this.#state.searchValue.toLowerCase();
         tabItems = tabItems.filter(item => item.name.toLowerCase().includes(search));
+        upgrades = upgrades.filter(item => item.name.toLowerCase().includes(search));
       }
 
-      itemGroups = groupBySource(tabItems).map(group => ({
+      itemGroups = groupBySubtype(tabItems, upgrades).map(group => ({
         ...group,
         items: group.items.map(item => {
           const finalPrice = calculateFinalPrice(item.price, markup);
@@ -179,6 +227,8 @@ export default class StoreApp extends HandlebarsApplicationMixin(ApplicationV2) 
       settingsActive,
       isGM,
       markup,
+      markupIsFree: markup === 0,
+      markupIsStandard: markup === 100,
       priceMin,
       priceMax,
       categoryToggles,
@@ -242,23 +292,26 @@ export default class StoreApp extends HandlebarsApplicationMixin(ApplicationV2) 
   }
 
   async #updateAvailability(mutator) {
-    const availability = foundry.utils.deepClone(
-      game.settings.get(MODULE_ID, "storeAvailability")
-    );
-    mutator(availability);
-    await game.settings.set(MODULE_ID, "storeAvailability", availability);
-    broadcastStoreState();
-    this.render(true);
+    if (!game.user.isGM) return;
+    const shop = getShop(this.#shopActor);
+    if (!shop) return;
+    mutator(shop);
+    await this.#shopActor.setFlag(MODULE_ID, "shop", shop);
   }
 
   static async #onBuyItem(event, target) {
     const uuid = target.dataset.uuid;
     const item = this.#findItem(uuid);
     const actor = this.#getSelectedActor();
-    if (!item || !actor) return;
+    const shop = getShop(this.#shopActor);
+    if (!item || !actor || !shop) return;
+    if (shop.categoryEnabled[item.type] === false || shop.blockedItems.includes(uuid) ||
+        (shop.priceMin > 0 && item.price < shop.priceMin) ||
+        (shop.priceMax > 0 && item.price > shop.priceMax) ||
+        (item.type === "itemUpgrade" && this.#state.activeTab !== "itemUpgrade" &&
+         shop.categoryEnabled[this.#state.activeTab] === false)) return this.render(true);
 
-    const markup = game.settings.get(MODULE_ID, "storeMarkup");
-    const bought = await purchaseItem(actor, item, markup);
+    const bought = await purchaseItem(actor, item, shop.markup);
     if (bought) this.render(true);
   }
 
@@ -266,25 +319,19 @@ export default class StoreApp extends HandlebarsApplicationMixin(ApplicationV2) 
     const uuid = target.dataset.uuid;
     const item = this.#findItem(uuid);
     const actor = this.#getSelectedActor();
-    if (!item || !actor) return;
+    if (!game.user.isGM || !item || !actor) return;
 
     await lootItem(actor, item);
   }
 
   static async #onAdjustMarkup(event, target) {
     const delta = Number(target.dataset.delta);
-    let markup = game.settings.get(MODULE_ID, "storeMarkup");
-    markup = Math.max(0, Math.min(500, markup + delta));
-    await game.settings.set(MODULE_ID, "storeMarkup", markup);
-    broadcastStoreState();
-    this.render(true);
+    await this.#updateAvailability(shop => { shop.markup = Math.max(0, Math.min(500, shop.markup + delta)); });
   }
 
   static async #onSetMarkup(event, target) {
     const value = Number(target.dataset.value);
-    await game.settings.set(MODULE_ID, "storeMarkup", value);
-    broadcastStoreState();
-    this.render(true);
+    await this.#updateAvailability(shop => { shop.markup = Math.max(0, Math.min(500, value)); });
   }
 
   static async #onResetPriceRange() {
@@ -312,7 +359,7 @@ export default class StoreApp extends HandlebarsApplicationMixin(ApplicationV2) 
 
   async close(options = {}) {
     await super.close(options);
-    StoreApp.#instance = null;
+    StoreApp.#instances.delete(this.#shopActor.uuid);
     this.#allItems = null;
   }
 }

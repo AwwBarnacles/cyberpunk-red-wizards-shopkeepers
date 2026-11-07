@@ -2,10 +2,10 @@ import CharacterCreatorApp from "./app/creator-app.js";
 import ImprovementApp from "./app/improvement-app.js";
 import NpcGeneratorApp from "./app/npc-generator-app.js";
 import { initSharedSocket } from "./socket.js";
-import { initStoreSocket } from "./store/store-socket.js";
 import { initCreatorSocket } from "./creator/creator-socket.js";
 import { initImprovementPresence } from "./improvement/improvement-presence.js";
 import StoreApp from "./app/store-app.js";
+import { isShop, assignShop, removeShop } from "./store/shop-state.js";
 import StorePackConfig from "./app/store-pack-config.js";
 import NpcCategoryConfig from "./app/npc-category-config.js";
 import { migrateCustomTemplateCategories } from "./data/npc-categories.js";
@@ -146,15 +146,63 @@ Hooks.once("init", () => {
 
 Hooks.once("ready", () => {
   const socket = initSharedSocket();
-  initStoreSocket();
   initCreatorSocket();
   initImprovementPresence(socket);
+
+  const resolveActor = ref => {
+    if (typeof ref !== "string") return ref;
+    return ref.startsWith("Actor.") || ref.startsWith("Scene.")
+      ? fromUuidSync(ref)
+      : game.actors.get(ref) ?? game.actors.getName(ref);
+  };
+  game.modules.get(MODULE_ID).api = {
+    isShop: ref => isShop(resolveActor(ref)),
+    assign: ref => assignShop(resolveActor(ref)),
+    remove: ref => removeShop(resolveActor(ref)),
+    open: ref => StoreApp.open(resolveActor(ref)),
+  };
 
   if (game.user.isGM && !game.settings.get(MODULE_ID, "npcCategoryMigrationDone")) {
     migrateCustomTemplateCategories()
       .then(() => game.settings.set(MODULE_ID, "npcCategoryMigrationDone", true))
       .catch(err => console.error("CRW | NPC category migration failed", err));
   }
+});
+
+Hooks.once("setup", () => {
+  const BaseToken = CONFIG.Token.objectClass;
+  CONFIG.Token.objectClass = class ShopToken extends BaseToken {
+    _onClickLeft2(event) {
+      if (this.actor && isShop(this.actor) && !event.shiftKey) {
+        StoreApp.open(this.actor);
+        return;
+      }
+      return super._onClickLeft2(event);
+    }
+  };
+});
+
+Hooks.on("updateActor", actor => StoreApp.refresh(actor));
+Hooks.on("deleteActor", actor => StoreApp.closeFor(actor));
+Hooks.on("updateToken", token => { if (token.actor) StoreApp.refresh(token.actor); });
+Hooks.on("deleteToken", token => { if (token.actor && !token.actorLink) StoreApp.closeFor(token.actor); });
+for (const hook of ["createItem", "updateItem", "deleteItem"]) {
+  Hooks.on(hook, item => { if (!item.parent) StoreApp.invalidateCatalog(); });
+}
+
+Hooks.on("getActorDirectoryEntryContext", (html, options) => {
+  const actorFor = li => game.actors.get(li[0]?.dataset.documentId ?? li.dataset?.documentId);
+  options.push({
+    name: "crw.store.shop.assign",
+    icon: '<i class="fas fa-store"></i>',
+    condition: li => game.user.isGM && !!actorFor(li) && !isShop(actorFor(li)),
+    callback: li => assignShop(actorFor(li)),
+  }, {
+    name: "crw.store.shop.remove",
+    icon: '<i class="fas fa-store-slash"></i>',
+    condition: li => game.user.isGM && isShop(actorFor(li)),
+    callback: li => removeShop(actorFor(li)),
+  });
 });
 
 Hooks.on("renderActorDirectory", (app, html) => {
@@ -199,20 +247,4 @@ Hooks.on("renderActorDirectory", (app, html) => {
     ipBtn.addEventListener("click", () => ImprovementApp.open());
     if (!footer.querySelector(".crw-improvement-btn")) footer.append(ipBtn);
   }
-});
-
-Hooks.on("renderItemDirectory", (app, html) => {
-  const headerActions = html[0]?.querySelector(".header-actions")
-    ?? html.querySelector?.(".header-actions");
-  if (!headerActions) return;
-
-  const storeBtn = document.createElement("button");
-  storeBtn.type = "button";
-  storeBtn.classList.add("crw-sidebar-btn");
-  storeBtn.innerHTML = `<i class="fas fa-store"></i> ${game.i18n.localize("crw.store.buttons.store")}`;
-  storeBtn.addEventListener("click", () => {
-    StoreApp.open();
-  });
-
-  headerActions.append(storeBtn);
 });
