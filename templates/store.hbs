@@ -87,7 +87,10 @@
       {{!-- Hidden Items --}}
       <div class="crw-store-settings-section">
         <h3>{{localize "crw.store.settings.hiddenItems"}}</h3>
-        {{#if hiddenItems.length}}
+        {{#if selectedStock}}
+        <p class="crw-store-hint">{{localize "crw.store.shop.stockHint"}}</p>
+        <button data-action="restoreAllItems">{{localize "crw.store.shop.showAllCurrent"}}</button>
+        {{else if hiddenItems.length}}
         <div class="crw-store-hidden-list">
           {{#each hiddenItems}}
           <div class="crw-store-hidden-item">
@@ -101,11 +104,6 @@
           {{/each}}
         </div>
         <button data-action="restoreAllItems">{{localize "crw.store.settings.restoreAll"}}</button>
-        {{else if noActor}}
-        <div class="crw-store-empty">
-          <p>{{localize "crw.store.noCharacter"}}</p>
-        </div>
-
         {{else}}
         <p class="crw-store-hint">{{localize "crw.store.settings.noHiddenItems"}}</p>
         {{/if}}
@@ -113,6 +111,10 @@
       </div>
     </div>
 
+    {{else if cannotBrowse}}
+    <div class="crw-store-empty">
+      <p>{{localize "crw.store.noCharacter"}}</p>
+    </div>
     {{else}}
     {{!-- Item list --}}
     <div class="crw-store-search">
@@ -129,27 +131,37 @@
         <span>{{this.label}}</span>
       </div>
       {{#each this.items}}
-      <div class="crw-store-item {{#if this.unaffordable}}crw-store-unaffordable{{/if}}"
+      <div class="crw-store-item {{#if this.unaffordable}}crw-store-unaffordable{{/if}} {{#if this.hidden}}crw-store-hidden-stock{{/if}}"
            data-uuid="{{this.uuid}}">
         <div class="crw-store-item-info">
           <div class="crw-store-item-name">{{this.name}}</div>
           <div class="crw-store-item-subtype">{{this.subtype}}</div>
+          {{#if this.hidden}}<div class="crw-store-item-subtype">{{localize "crw.store.shop.hidden"}}</div>{{/if}}
         </div>
         <div class="crw-store-item-actions">
           <button class="crw-store-btn-buy {{#if this.unaffordable}}crw-store-btn-disabled{{/if}}"
                   data-action="buyItem" data-uuid="{{this.uuid}}"
-                  {{#if this.unaffordable}}disabled{{/if}}>
+                  {{#unless ../../selectedActor}}disabled{{else if this.unaffordable}}disabled{{else if this.hidden}}disabled{{/unless}}>
             €$ {{this.finalPrice}}
           </button>
           {{#if ../../isGM}}
+          {{#if ../../selectedActor}}
           <button class="crw-store-btn-loot" data-action="lootItem" data-uuid="{{this.uuid}}"
                   title="{{localize "crw.store.loot"}}">
             <i class="fas fa-gift"></i>
           </button>
+          {{/if}}
+          {{#if this.hidden}}
+          <button class="crw-store-btn-restore" data-action="restoreItem" data-uuid="{{this.uuid}}"
+                  title="{{localize "crw.store.settings.restore"}}">
+            <i class="fas fa-eye"></i>
+          </button>
+          {{else}}
           <button class="crw-store-btn-hide" data-action="hideItem" data-uuid="{{this.uuid}}"
                   title="{{localize "crw.store.settings.hide"}}">
             <i class="fas fa-eye-slash"></i>
           </button>
+          {{/if}}
           {{/if}}
         </div>
       </div>

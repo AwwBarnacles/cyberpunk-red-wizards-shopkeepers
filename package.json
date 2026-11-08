@@ -7,7 +7,8 @@
   "description": "Dev tooling for the cyberpunk-red-wizards Foundry module (tests only; not published).",
   "scripts": {
     "test": "node --test --import ./test/setup.mjs \"test/**/*.test.mjs\"",
-    "gen:editor-options": "node tools/gen-editor-options.mjs"
+    "gen:editor-options": "node tools/gen-editor-options.mjs",
+    "build:shop-macros": "node tools/build-shop-macros.mjs"
   },
   "devDependencies": {
     "classic-level": "^1.4.1"

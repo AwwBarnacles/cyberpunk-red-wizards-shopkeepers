@@ -1,0 +1,14 @@
+{
+  "_id": "CRWOpenShopGM001",
+  "name": "Open Shop (GM)",
+  "type": "script",
+  "scope": "global",
+  "author": null,
+  "img": "icons/svg/coins.svg",
+  "command": "if (!game.user.isGM) return ui.notifications.warn(game.i18n.localize(\"crw.store.shop.gmOnly\"));\nconst token = canvas.tokens?.controlled[0] ?? game.user.targets.first();\nif (!token?.actor) return ui.notifications.warn(game.i18n.localize(\"crw.store.shop.selectToken\"));\ngame.modules.get(\"cyberpunk-red-wizards\").api.open(token.actor);",
+  "folder": null,
+  "sort": 0,
+  "ownership": { "default": 0 },
+  "flags": {},
+  "_key": "!macros!CRWOpenShopGM001"
+}

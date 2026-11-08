@@ -23,6 +23,13 @@
     { "lang": "en", "name": "English", "path": "languages/en.json" },
     { "lang": "pl", "name": "Polish", "path": "languages/pl.json" }
   ],
+  "packs": [{
+    "name": "shop-macros",
+    "label": "CRW Shop Macros",
+    "path": "packs/shop-macros",
+    "type": "Macro",
+    "ownership": { "PLAYER": "NONE", "ASSISTANT": "OWNER" }
+  }],
   "socket": true,
   "url": "#{URL}#",
   "manifest": "#{MANIFEST}#",

@@ -1,9 +1,10 @@
 import { test } from "node:test";
 import { deepStrictEqual, equal, ok } from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
 globalThis.FormApplication = class {};
 const { loadStoreItems, categorizeItems, groupBySubtype } = await import("../../scripts/data/store-loader.js");
-const { assignShop, getShop, removeShop } = await import("../../scripts/store/shop-state.js");
+const { assignShop, getShop, removeShop, isItemVisible, setItemVisible } = await import("../../scripts/store/shop-state.js");
 
 const doc = (name, type, system = {}) => ({ name, type, system, uuid: `Item.${name}` });
 
@@ -63,10 +64,12 @@ test("shop settings are isolated, copied from legacy settings, and GM-managed", 
   await assignShop(second);
   equal(first.ownership.default, 1);
   equal(getShop(first).markup, 150);
+  equal(getShop(first).stockMode, "selected");
+  equal(isItemVisible(getShop(first), "Item.any"), false);
   const updated = getShop(first);
   updated.blockedItems.push("Item.extra");
   await first.setFlag("", "shop", updated);
-  deepStrictEqual(getShop(second).blockedItems, ["Item.hidden"]);
+  deepStrictEqual(getShop(second).blockedItems, []);
   deepStrictEqual(legacy.blockedItems, ["Item.hidden"]);
   game.user.isGM = false;
   await removeShop(first);
@@ -75,6 +78,21 @@ test("shop settings are isolated, copied from legacy settings, and GM-managed", 
   await removeShop(first);
   equal(getShop(first), null);
   ok(getShop(second));
+});
+
+test("visibility defaults to hidden for new shops and preserves legacy shops", () => {
+  const selected = { stockMode: "selected", visibleItems: [], blockedItems: [] };
+  equal(isItemVisible(selected, "Item.one"), false);
+  setItemVisible(selected, "Item.one", true);
+  equal(isItemVisible(selected, "Item.one"), true);
+  equal(isItemVisible(selected, "Item.new"), false);
+  setItemVisible(selected, "Item.one", false);
+  equal(isItemVisible(selected, "Item.one"), false);
+  const legacy = { stockMode: "legacy", blockedItems: ["Item.one"], visibleItems: [] };
+  equal(isItemVisible(legacy, "Item.one"), false);
+  equal(isItemVisible(legacy, "Item.new"), true);
+  setItemVisible(legacy, "Item.one", true);
+  equal(isItemVisible(legacy, "Item.one"), true);
 });
 
 test("store contexts isolate prices and put only matching upgrades after weapon groups", async () => {
@@ -122,4 +140,66 @@ test("store contexts isolate prices and put only matching upgrades after weapon 
   equal((await b._prepareContext()).markup, 200);
   await a.close();
   await b.close();
+});
+
+test("GM without a buyer can browse and manage stock, players see only revealed stock", async () => {
+  const { default: StoreApp } = await import("../../scripts/app/store-app.js");
+  const actors = [];
+  actors.get = id => actors.find(a => a.id === id);
+  const shop = {
+    id: "shop", uuid: "Actor.shop", name: "Shop", type: "mook",
+    state: { stockMode: "selected", visibleItems: [], categoryEnabled: {}, blockedItems: [], markup: 100 },
+    testUserPermission: () => true,
+    getFlag() { return this.state; },
+    async setFlag(_module, _key, value) { this.state = value; },
+  };
+  globalThis.game = {
+    user: { isGM: true, character: null }, actors, packs: [], settings: { get: () => ({}) },
+    items: [doc("Pistol", "weapon", { weaponType: "heavyPistol", price: { market: 100 } })],
+    i18n: { has: () => false, localize: key => key },
+  };
+  const app = StoreApp.open(shop);
+  let context = await app._prepareContext();
+  equal(context.selectedActor, false);
+  equal(context.itemGroups[0].items[0].hidden, true);
+  equal(context.itemGroups[0].items[0].unaffordable, false);
+  await StoreApp.DEFAULT_OPTIONS.actions.restoreItem.call(app, null, { dataset: { uuid: "Item.Pistol" } });
+  equal((await app._prepareContext()).itemGroups[0].items[0].hidden, false);
+  const buyer = { id: "buyer", type: "character", isOwner: true, system: { wealth: { value: 1000 } } };
+  actors.push(buyer);
+  game.user.isGM = false;
+  game.user.character = buyer;
+  context = await app._prepareContext();
+  equal(context.itemGroups[0].items[0].name, "Pistol");
+  game.user.isGM = true;
+  await StoreApp.DEFAULT_OPTIONS.actions.hideItem.call(app, null, { dataset: { uuid: "Item.Pistol" } });
+  game.user.isGM = false;
+  equal((await app._prepareContext()).itemGroups.length, 0);
+  game.user.isGM = true;
+  await StoreApp.DEFAULT_OPTIONS.actions.restoreAllItems.call(app);
+  equal(isItemVisible(getShop(shop), "Item.Pistol"), true);
+  equal(isItemVisible(getShop(shop), "Item.future"), false);
+  await app.close();
+});
+
+test("GM macro opens selected or targeted shop without a character", async () => {
+  const macro = JSON.parse(await readFile(new URL("../../packs/_source/macros/open-shop.json", import.meta.url), "utf8"));
+  const run = new (Object.getPrototypeOf(async function () {}).constructor)(macro.command);
+  const selected = { actor: { id: "selected" } }, targeted = { actor: { id: "targeted" } };
+  const opened = [], warnings = [];
+  globalThis.canvas = { tokens: { controlled: [selected] } };
+  globalThis.game = {
+    user: { isGM: true, character: null, targets: { first: () => targeted } },
+    modules: new Map([["cyberpunk-red-wizards", { api: { open: actor => opened.push(actor.id) } }]]),
+    i18n: { localize: key => key },
+  };
+  globalThis.ui = { notifications: { warn: message => warnings.push(message) } };
+  await run();
+  canvas.tokens.controlled = [];
+  await run();
+  deepStrictEqual(opened, ["selected", "targeted"]);
+  game.user.isGM = false;
+  await run();
+  deepStrictEqual(opened, ["selected", "targeted"]);
+  deepStrictEqual(warnings, ["crw.store.shop.gmOnly"]);
 });

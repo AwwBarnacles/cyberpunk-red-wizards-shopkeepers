@@ -9,12 +9,31 @@ export function getShop(actor) {
     markup: 100,
     categoryEnabled: {},
     blockedItems: [],
+    visibleItems: [],
+    stockMode: "legacy",
     priceMin: 0,
     priceMax: 0,
     ...stored,
     categoryEnabled: { ...(stored.categoryEnabled ?? {}) },
     blockedItems: [...(stored.blockedItems ?? [])],
+    visibleItems: [...(stored.visibleItems ?? [])],
   };
+}
+
+export function isItemVisible(shop, uuid) {
+  return shop.stockMode === "selected"
+    ? shop.visibleItems.includes(uuid)
+    : !shop.blockedItems.includes(uuid);
+}
+
+export function setItemVisible(shop, uuid, visible) {
+  if (shop.stockMode === "selected") {
+    shop.visibleItems = shop.visibleItems.filter(id => id !== uuid);
+    if (visible) shop.visibleItems.push(uuid);
+  } else {
+    shop.blockedItems = shop.blockedItems.filter(id => id !== uuid);
+    if (!visible) shop.blockedItems.push(uuid);
+  }
 }
 
 export async function assignShop(actor) {
@@ -25,6 +44,9 @@ export async function assignShop(actor) {
     await actor.setFlag(MODULE_ID, "shop", {
       ...foundry.utils.deepClone(availability),
       markup: game.settings.get(MODULE_ID, "storeMarkup"),
+      stockMode: "selected",
+      visibleItems: [],
+      blockedItems: [],
     });
   }
   if ((actor.ownership?.default ?? 0) < CONST.DOCUMENT_OWNERSHIP_LEVELS.LIMITED) {

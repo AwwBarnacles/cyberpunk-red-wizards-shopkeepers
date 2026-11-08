@@ -128,7 +128,11 @@ Assign a shop to an actor and let players browse and buy equipment from compendi
 
 **Setup:** As GM, right-click a world actor in the Actors directory and choose **Assign Shop**. Double-click its token to open the shop; Shift-double-click opens the actor sheet. Right-click the actor and choose **Remove Shop** to discard its shop settings. Assignment raises the actor's default ownership to Limited so players can interact with its token; removal does not change ownership back.
 
-Each actor has independent settings, initially copied from the old global store settings. Pack exclusions remain world-wide. The module API also provides `game.modules.get("cyberpunk-red-wizards").api.assign(actor)`, `.remove(actor)`, `.open(actor)` and `.isShop(actor)`; these accept an actor, UUID, world actor ID or name. For an unlinked token, pass its token actor to the API to configure that token independently.
+New shops hide all items from players by default, including items added later. The GM can browse the catalog without a buyer and use each item's eye button to reveal or hide it. The settings tab can reveal all currently loaded items. Existing actor shops retain their visibility settings.
+
+To open a shop as GM without an assigned character, drag **Open Shop (GM)** from the **CRW Shop Macros** compendium to the hotbar, then select or target a shop token and run it. Buying or gifting still requires a character buyer.
+
+Each actor has independent settings, initially copied from the old global store settings except item visibility. Pack exclusions remain world-wide. The module API also provides `game.modules.get("cyberpunk-red-wizards").api.assign(actor)`, `.remove(actor)`, `.open(actor)` and `.isShop(actor)`; these accept an actor, UUID, world actor ID or name. For an unlinked token, pass its token actor to the API to configure that token independently.
 
 ---
 

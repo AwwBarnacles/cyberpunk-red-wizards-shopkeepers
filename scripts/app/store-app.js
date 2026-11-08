@@ -1,6 +1,6 @@
 import { loadStoreItems, categorizeItems, groupBySubtype } from "../data/store-loader.js";
 import { purchaseItem, lootItem, calculateFinalPrice } from "../store/store-purchase.js";
-import { getShop } from "../store/shop-state.js";
+import { getShop, isItemVisible, setItemVisible } from "../store/shop-state.js";
 import { MODULE_ID } from "../constants.js";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
@@ -148,7 +148,6 @@ export default class StoreApp extends HandlebarsApplicationMixin(ApplicationV2) 
       return {};
     }
     const { markup, categoryEnabled, blockedItems, priceMin, priceMax } = shop;
-    const blockedSet = new Set(blockedItems);
     const balance = actor?.system.wealth.value ?? 0;
     const isGM = game.user.isGM;
     const settingsActive = isGM && this.#state.activeTab === "settings";
@@ -165,7 +164,7 @@ export default class StoreApp extends HandlebarsApplicationMixin(ApplicationV2) 
     }
 
     let itemGroups = [];
-    if (actor && !settingsActive && categoryEnabled[this.#state.activeTab] !== false) {
+    if ((actor || isGM) && !settingsActive && categoryEnabled[this.#state.activeTab] !== false) {
       const categorized = categorizeItems(this.#allItems);
       let tabItems = categorized[this.#state.activeTab] ?? [];
       let upgrades = this.#state.activeTab === "itemUpgrade" || categoryEnabled.itemUpgrade === false
@@ -173,7 +172,7 @@ export default class StoreApp extends HandlebarsApplicationMixin(ApplicationV2) 
         : categorized.itemUpgrade.filter(item => item.upgradeTarget === this.#state.activeTab);
 
       const available = item => {
-        if (blockedSet.has(item.uuid)) return false;
+        if (!isGM && !isItemVisible(shop, item.uuid)) return false;
         if (priceMin > 0 && item.price < priceMin) return false;
         if (priceMax > 0 && item.price > priceMax) return false;
         return true;
@@ -194,7 +193,8 @@ export default class StoreApp extends HandlebarsApplicationMixin(ApplicationV2) 
           return {
             ...item,
             finalPrice: finalPrice.toLocaleString(),
-            unaffordable: finalPrice > balance && finalPrice > 0,
+            hidden: !isItemVisible(shop, item.uuid),
+            unaffordable: !!actor && finalPrice > balance && finalPrice > 0,
           };
         }),
       }));
@@ -207,7 +207,7 @@ export default class StoreApp extends HandlebarsApplicationMixin(ApplicationV2) 
     }));
 
     let hiddenItems = [];
-    if (isGM && blockedItems.length > 0) {
+    if (isGM && shop.stockMode !== "selected" && blockedItems.length > 0) {
       hiddenItems = blockedItems
         .map(uuid => this.#allItems.find(i => i.uuid === uuid))
         .filter(Boolean)
@@ -222,6 +222,7 @@ export default class StoreApp extends HandlebarsApplicationMixin(ApplicationV2) 
       actors: this.#getActorChoices(),
       selectedActor: !!actor,
       noActor: !actor,
+      cannotBrowse: !actor && !isGM,
       balance: balance.toLocaleString(),
       tabs,
       settingsActive,
@@ -233,6 +234,7 @@ export default class StoreApp extends HandlebarsApplicationMixin(ApplicationV2) 
       priceMax,
       categoryToggles,
       hiddenItems,
+      selectedStock: shop.stockMode === "selected",
       itemGroups,
       searchValue: this.#state.searchValue,
     };
@@ -305,7 +307,7 @@ export default class StoreApp extends HandlebarsApplicationMixin(ApplicationV2) 
     const actor = this.#getSelectedActor();
     const shop = getShop(this.#shopActor);
     if (!item || !actor || !shop) return;
-    if (shop.categoryEnabled[item.type] === false || shop.blockedItems.includes(uuid) ||
+    if (shop.categoryEnabled[item.type] === false || !isItemVisible(shop, uuid) ||
         (shop.priceMin > 0 && item.price < shop.priceMin) ||
         (shop.priceMax > 0 && item.price > shop.priceMax) ||
         (item.type === "itemUpgrade" && this.#state.activeTab !== "itemUpgrade" &&
@@ -340,16 +342,19 @@ export default class StoreApp extends HandlebarsApplicationMixin(ApplicationV2) 
 
   static async #onHideItem(event, target) {
     const uuid = target.dataset.uuid;
-    await this.#updateAvailability(a => { if (!a.blockedItems.includes(uuid)) a.blockedItems.push(uuid); });
+    await this.#updateAvailability(a => setItemVisible(a, uuid, false));
   }
 
   static async #onRestoreItem(event, target) {
     const uuid = target.dataset.uuid;
-    await this.#updateAvailability(a => { a.blockedItems = a.blockedItems.filter(u => u !== uuid); });
+    await this.#updateAvailability(a => setItemVisible(a, uuid, true));
   }
 
   static async #onRestoreAllItems() {
-    await this.#updateAvailability(a => { a.blockedItems = []; });
+    await this.#updateAvailability(a => {
+      if (a.stockMode === "selected") a.visibleItems = this.#allItems.map(item => item.uuid);
+      else a.blockedItems = [];
+    });
   }
 
   static #onClearSearch() {
